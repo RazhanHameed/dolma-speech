@@ -34,6 +34,15 @@ language_mapping = {
     "zazaki": "arz"          # Egyptian Arabic (shares some features)
 }
 
+from json import JSONEncoder
+
+class TensorEncoder(JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, torch.Tensor):
+            return obj.detach().cpu().numpy().tolist()
+        return super().default(obj)
+
+
 class UnitSpeechTokenizer(SpeechTokenizer):
     MODEL_NAME = "xlsr2_1b_v2"
     KMEANS_MODEL_URI = "https://dl.fbaipublicfiles.com/seamlessM4T/models/unit_extraction/kmeans_10k.npy"
@@ -105,11 +114,11 @@ def process_language_directory(
     manifest_path: str = os.path.join(save_directory, f"{split}_manifest.json")
     with open(manifest_path, "w") as fp_out:
         for idx, sample in enumerate(dataset_iterator.__iter__(), start=1):
-            # correction as FleursDatasetBuilder return fleurs lang codes
+           
             sample.source.lang = source_lang_code
             sample.target.lang = target_lang_code
             # sample.target.waveform = None  # already extracted units
-            fp_out.write(json.dumps(dataclasses.asdict(sample)) + "\n")
+            fp_out.write(json.dumps(dataclasses.asdict(sample),  cls=TensorEncoder) + "\n")
     logger.info(f"Saved {idx} samples for split={split} to {manifest_path}")
     logger.info(f"Manifest saved to: {manifest_path}")
 
