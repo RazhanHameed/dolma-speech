@@ -3,3 +3,10 @@ soundfile
 numpy
 pandas
 tqdm
+torch
+torchaudio
+jiwer
+evaluate
+transformers
+accelerate
+sacrebleu
