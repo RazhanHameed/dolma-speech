@@ -1,4 +1,4 @@
-python run_speech_recognition_seq2seq.py \
+python finetune_whisper.py \
 	--model_name_or_path="openai/whisper-base" \
 	--language="persian" \
 	--num_train_epochs="3" \
@@ -23,7 +23,5 @@ python run_speech_recognition_seq2seq.py \
 	--do_eval \
 	--transcription_column_name="sentence" \
 	--predict_with_generate \
-	--do_lower \
-	--max_train_samples="5" \
-	--max_eval_samples="1"
+	--do_lower 
 	
