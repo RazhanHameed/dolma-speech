@@ -500,15 +500,16 @@ def main():
         if forward_attention_mask:
             batch["attention_mask"] = inputs.get("attention_mask")[0]
 
+        # process targets for translation with language-specific prefix
+        tokenizer.set_prefix_tokens(language=batch["language"], task="translate")
+        input_str_translate = batch["english"].lower() 
+        batch["labels_translate"] = tokenizer(input_str_translate).input_ids
+        
         # process targets for transcription with language-specific prefix
         tokenizer.set_prefix_tokens(language=batch["language"], task="transcribe")
         input_str_transcribe = preprocess_func(batch[transcription_column_name])
         batch["labels_transcribe"] = tokenizer(input_str_transcribe).input_ids
 
-        # process targets for translation with language-specific prefix
-        tokenizer.set_prefix_tokens(language=batch["language"], task="translate")
-        input_str_translate = batch["english"].lower() if do_lower_case else batch["english"]
-        batch["labels_translate"] = tokenizer(input_str_translate).input_ids
 
         return batch
     
@@ -534,33 +535,52 @@ def main():
     #     return batch
 
     def flatten_dataset(batch):
-        """Flatten the dataset to combine transcription and translation samples"""
-        transcription_samples = []
-        translation_samples = []
+        """Flatten the dataset to combine transcription and translation samples efficiently"""
+        batch_size = len(batch["input_features"])
+        
+        # Create lists for both transcription and translation samples
+        combined_features = []
+        combined_masks = []
+        combined_labels = []
+        combined_tasks = []
+        combined_lengths = []
 
-        for i in range(len(batch["input_features"])):
-            transcription_samples.append({
-                "input_features": batch["input_features"][i],
-                "attention_mask": batch.get("attention_mask")[i] if "attention_mask" in batch else None,
-                "labels": batch["labels_transcribe"][i],
-                "task": "transcribe",
-                "input_length": batch["input_length"][i]
-            })
-            translation_samples.append({
-                "input_features": batch["input_features"][i],
-                "attention_mask": batch.get("attention_mask")[i] if "attention_mask" in batch else None,
-                "labels": batch["labels_translate"][i],
-                "task": "translate",
-                "input_length": batch["input_length"][i]
-            })
+        # Pre-allocate lists with total size
+        combined_features = [None] * (batch_size * 2)
+        combined_masks = [None] * (batch_size * 2) if "attention_mask" in batch else None
+        combined_labels = [None] * (batch_size * 2)
+        combined_tasks = ["transcribe"] * batch_size + ["translate"] * batch_size
+        combined_lengths = [None] * (batch_size * 2)
 
-        return {
-            "input_features": [sample["input_features"] for sample in transcription_samples + translation_samples],
-            "attention_mask": [sample["attention_mask"] for sample in transcription_samples + translation_samples],
-            "labels": [sample["labels"] for sample in transcription_samples + translation_samples],
-            "task": [sample["task"] for sample in transcription_samples + translation_samples],
-            "input_length": [sample["input_length"] for sample in transcription_samples + translation_samples]
+        # Fill lists efficiently
+        for i in range(batch_size):
+            # Transcription sample
+            combined_features[i] = batch["input_features"][i]
+            combined_labels[i] = batch["labels_transcribe"][i]
+            combined_lengths[i] = batch["input_length"][i]
+            
+            # Translation sample
+            combined_features[i + batch_size] = batch["input_features"][i]
+            combined_labels[i + batch_size] = batch["labels_translate"][i]
+            combined_lengths[i + batch_size] = batch["input_length"][i]
+            
+            # Handle attention masks if present
+            if combined_masks is not None:
+                mask = batch["attention_mask"][i]
+                combined_masks[i] = mask
+                combined_masks[i + batch_size] = mask
+
+        result = {
+            "input_features": combined_features,
+            "labels": combined_labels,
+            "task": combined_tasks,
+            "input_length": combined_lengths
         }
+
+        if combined_masks is not None:
+            result["attention_mask"] = combined_masks
+
+        return result
 
     with training_args.main_process_first(desc="dataset map pre-processing"):
         # Map and process the dataset
@@ -586,11 +606,6 @@ def main():
         def is_audio_in_length_range(length):
             return length > min_input_length and length < max_input_length
 
-        # vectorized_datasets = vectorized_datasets.filter(
-        #     is_audio_in_length_range,
-        #     num_proc=num_workers,
-        #     input_columns=["input_length"],
-        # )
 
 
         # Apply filter to flattened_datasets
